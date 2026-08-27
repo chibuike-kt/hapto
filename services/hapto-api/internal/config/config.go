@@ -29,6 +29,8 @@ type Config struct {
 	ResendAPIKey string
 	EmailFrom    string
 	AppBaseURL   string
+
+	PaymentIntentTTL time.Duration
 }
 
 func Load() (Config, error) {
@@ -42,6 +44,11 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	maxTTL, err := getSeconds("SESSION_MAX_TTL_SECONDS", 604800)
+	if err != nil {
+		return Config{}, err
+	}
+
+	paymentIntentTTL, err := getSeconds("PAYMENT_INTENT_TTL_SECONDS", 300)
 	if err != nil {
 		return Config{}, err
 	}
@@ -64,6 +71,8 @@ func Load() (Config, error) {
 		ResendAPIKey: getEnv("RESEND_API_KEY", ""),
 		EmailFrom:    getEnv("EMAIL_FROM", "hapto <noreply@hapto.dev>"),
 		AppBaseURL:   getEnv("APP_BASE_URL", "http://localhost:3000"),
+
+		PaymentIntentTTL: paymentIntentTTL,
 	}, nil
 }
 
