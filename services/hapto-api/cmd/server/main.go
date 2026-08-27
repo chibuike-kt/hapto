@@ -97,6 +97,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /devices", deviceHandler.RegisterDevice)
+	mux.Handle("POST /devices/{id}/revoke", sessionStore.RequireSession(http.HandlerFunc(deviceHandler.RevokeDevice)))
 
 	mux.HandleFunc("POST /auth/signup", authHandler.Signup)
 	mux.HandleFunc("POST /auth/login", authHandler.Login)

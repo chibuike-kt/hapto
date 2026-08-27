@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"time"
+
+	"github.com/chibuike-kt/hapto-api/internal/session"
 )
 
 type Handler struct {
@@ -74,6 +76,36 @@ func (h *Handler) RegisterDevice(w http.ResponseWriter, r *http.Request) {
 		Status:    string(d.Status),
 		CreatedAt: d.CreatedAt.Format(time.RFC3339),
 	})
+}
+
+func (h *Handler) RevokeDevice(w http.ResponseWriter, r *http.Request) {
+	sess, ok := session.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing session")
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "device id is required")
+		return
+	}
+
+	if err := h.service.Revoke(r.Context(), id, sess.UserID); err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			writeError(w, http.StatusNotFound, "device not found")
+		case errors.Is(err, ErrForbidden):
+			writeError(w, http.StatusForbidden, err.Error())
+		case errors.Is(err, ErrAlreadyRevoked):
+			writeError(w, http.StatusConflict, err.Error())
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to revoke device")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

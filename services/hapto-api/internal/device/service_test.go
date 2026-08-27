@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	haptov1 "github.com/chibuike-kt/hapto-api/gen/hapto/v1"
 	"github.com/chibuike-kt/hapto-api/internal/device"
@@ -23,6 +24,18 @@ func (f *fakeStore) GetByID(_ context.Context, id string) (*device.Device, error
 		return f.created, nil
 	}
 	return nil, device.ErrNotFound
+}
+
+func (f *fakeStore) Revoke(_ context.Context, id string, revokedAt time.Time) error {
+	if f.created == nil || f.created.ID != id {
+		return device.ErrNotFound
+	}
+	if f.created.IsRevoked() {
+		return device.ErrAlreadyRevoked
+	}
+	f.created.RevokedAt = &revokedAt
+	f.created.Status = device.StatusRevoked
+	return nil
 }
 
 type fakeValidator struct {

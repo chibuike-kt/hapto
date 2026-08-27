@@ -1,0 +1,1 @@
+DROP INDEX idx_signing_devices_revoked_at;

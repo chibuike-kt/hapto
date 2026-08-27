@@ -13,6 +13,7 @@ import (
 
 var ErrInvalidPublicKey = errors.New("invalid public key")
 var ErrUnsupportedAlgorithm = errors.New("unsupported algorithm")
+var ErrForbidden = errors.New("caller does not own this device")
 
 // Validator confirms a public key is well-formed for its algorithm. In
 // production this is backed by hapto-crypto over gRPC; device registration
@@ -63,6 +64,42 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*Device, erro
 		return nil, fmt.Errorf("create device: %w", err)
 	}
 
+	return d, nil
+}
+
+// Revoke marks a device revoked. Only the device's owner may revoke it.
+// Revoking an already-revoked device is an error, not a silent no-op, so
+// callers can tell the difference between "done" and "already done".
+func (s *Service) Revoke(ctx context.Context, id, callerUserID string) error {
+	d, err := s.store.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if d.UserID != callerUserID {
+		return ErrForbidden
+	}
+	if d.IsRevoked() {
+		return ErrAlreadyRevoked
+	}
+
+	if err := s.store.Revoke(ctx, id, time.Now().UTC()); err != nil {
+		return fmt.Errorf("revoke device: %w", err)
+	}
+	return nil
+}
+
+// GetTrustedDevice looks up a device and confirms it hasn't been revoked.
+// No signature-verification path exists yet, but when one does, it must
+// call this instead of GetByID directly — a revoked device fails even with
+// a valid signature, per hapto's invariants.
+func (s *Service) GetTrustedDevice(ctx context.Context, id string) (*Device, error) {
+	d, err := s.store.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if d.IsRevoked() {
+		return nil, ErrDeviceRevoked
+	}
 	return d, nil
 }
 
