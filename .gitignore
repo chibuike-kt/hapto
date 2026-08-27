@@ -1,0 +1,21 @@
+# Go
+services/hapto-api/hapto-api
+*.exe
+
+# Rust
+target/
+Cargo.lock
+
+# Node
+node_modules/
+.next/
+.expo/
+dist/
+build/
+
+# env
+.env
+.env.local
+
+# OS
+.DS_Store

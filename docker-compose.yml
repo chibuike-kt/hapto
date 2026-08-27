@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:18.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hapto
+      POSTGRES_PASSWORD: hapto
+      POSTGRES_DB: hapto
+      # Postgres 18's image expects a version-specific data subdirectory;
+      # a fresh named volume on some Docker Desktop hosts (e.g. Windows)
+      # can contain a stray lost+found that makes it think data already
+      # exists at the mount root. Nesting PGDATA avoids that false positive.
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hapto -d hapto"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8.10.0-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # hapto-crypto and hapto-api get uncommented once each has a Dockerfile.
+  # Until then, run them on the host against these same ports:
+  #   cd services/hapto-crypto && cargo run
+  #   cd services/hapto-api && go run ./cmd/server
+  # hapto-api's own .env should point at localhost:5432, localhost:6379,
+  # and localhost:50051 for local dev, not the in-container hostnames below.
+
+  # hapto-crypto:
+  #   build:
+  #     context: ./services/hapto-crypto
+  #   restart: unless-stopped
+  #   ports:
+  #     - "50051:50051"
+
+  # hapto-api:
+  #   build:
+  #     context: ./services/hapto-api
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8080:8080"
+  #   env_file:
+  #     - ./services/hapto-api/.env
+  #   environment:
+  #     DATABASE_URL: postgres://hapto:hapto@postgres:5432/hapto?sslmode=disable
+  #     REDIS_URL: redis://redis:6379/0
+  #     HAPTO_CRYPTO_ADDR: hapto-crypto:50051
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     hapto-crypto:
+  #       condition: service_started
+
+volumes:
+  postgres_data:
+  redis_data:
