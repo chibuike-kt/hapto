@@ -40,9 +40,16 @@ const (
 	ActionPasswordResetRequested = "password.reset_requested"
 	ActionPasswordResetCompleted = "password.reset_completed"
 	ActionTOTPEnrolled           = "totp.enrolled"
+
+	ActionPaymentIntentCreated    = "payment_intent.created"
+	ActionPaymentIntentAuthorized = "payment_intent.authorized"
+	ActionPaymentIntentCompleted  = "payment_intent.completed"
+	ActionPaymentIntentFailed     = "payment_intent.failed"
+	ActionPaymentIntentExpired    = "payment_intent.expired"
 )
 
 const (
-	TargetTypeUser   = "user"
-	TargetTypeDevice = "device"
+	TargetTypeUser          = "user"
+	TargetTypeDevice        = "device"
+	TargetTypePaymentIntent = "payment_intent"
 )
