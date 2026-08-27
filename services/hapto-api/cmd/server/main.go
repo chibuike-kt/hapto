@@ -16,6 +16,7 @@ import (
 	"github.com/chibuike-kt/hapto-api/internal/cryptoclient"
 	"github.com/chibuike-kt/hapto-api/internal/device"
 	"github.com/chibuike-kt/hapto-api/internal/email"
+	"github.com/chibuike-kt/hapto-api/internal/migrate"
 	"github.com/chibuike-kt/hapto-api/internal/ratelimit"
 	"github.com/chibuike-kt/hapto-api/internal/session"
 )
@@ -44,11 +45,8 @@ func main() {
 		log.Fatalf("ping postgres: %v", err)
 	}
 
-	if err := device.ApplySchema(ctx, pgPool); err != nil {
-		log.Fatalf("apply device schema: %v", err)
-	}
-	if err := auth.ApplySchema(ctx, pgPool); err != nil {
-		log.Fatalf("apply auth schema: %v", err)
+	if err := migrate.Up(cfg.DatabaseURL); err != nil {
+		log.Fatalf("run migrations: %v", err)
 	}
 
 	redisOpts, err := redis.ParseURL(cfg.RedisURL)
