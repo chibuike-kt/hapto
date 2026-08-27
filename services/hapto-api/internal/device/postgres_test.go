@@ -101,3 +101,65 @@ func TestPostgresStore_GetByID_NotFound(t *testing.T) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
+
+func newPersistedTestDevice(t *testing.T, pool *pgxpool.Pool, store *device.PostgresStore) *device.Device {
+	t.Helper()
+
+	d := &device.Device{
+		ID:        uuid.NewString(),
+		UserID:    uuid.NewString(),
+		PublicKey: []byte(uuid.NewString()),
+		Algorithm: device.AlgorithmEd25519,
+		Status:    device.StatusActive,
+		CreatedAt: time.Now().UTC().Truncate(time.Microsecond),
+	}
+	if err := store.Create(context.Background(), d); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), "DELETE FROM signing_devices WHERE id = $1", d.ID); err != nil {
+			t.Logf("cleanup: delete device %s: %v", d.ID, err)
+		}
+	})
+	return d
+}
+
+func TestPostgresStore_Revoke_SetsRevokedAtAndStatus(t *testing.T) {
+	pool := openTestPool(t)
+	store := device.NewPostgresStore(pool)
+	d := newPersistedTestDevice(t, pool, store)
+
+	ctx := context.Background()
+	revokedAt := time.Now().UTC().Truncate(time.Microsecond)
+
+	if err := store.Revoke(ctx, d.ID, revokedAt); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+
+	got, err := store.GetByID(ctx, d.ID)
+	if err != nil {
+		t.Fatalf("get by id: %v", err)
+	}
+	if got.RevokedAt == nil || !got.RevokedAt.Equal(revokedAt) {
+		t.Fatalf("revoked_at = %v, want %v", got.RevokedAt, revokedAt)
+	}
+	if got.Status != device.StatusRevoked {
+		t.Fatalf("status = %q, want %q", got.Status, device.StatusRevoked)
+	}
+}
+
+func TestPostgresStore_Revoke_AlreadyRevokedFails(t *testing.T) {
+	pool := openTestPool(t)
+	store := device.NewPostgresStore(pool)
+	d := newPersistedTestDevice(t, pool, store)
+
+	ctx := context.Background()
+	if err := store.Revoke(ctx, d.ID, time.Now().UTC()); err != nil {
+		t.Fatalf("first revoke: %v", err)
+	}
+
+	err := store.Revoke(ctx, d.ID, time.Now().UTC())
+	if !errors.Is(err, device.ErrAlreadyRevoked) {
+		t.Fatalf("expected ErrAlreadyRevoked, got %v", err)
+	}
+}

@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -40,4 +41,18 @@ func (s *PostgresStore) GetByID(ctx context.Context, id string) (*Device, error)
 		return nil, err
 	}
 	return &d, nil
+}
+
+func (s *PostgresStore) Revoke(ctx context.Context, id string, revokedAt time.Time) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE signing_devices SET revoked_at = $2, status = $3
+		WHERE id = $1 AND revoked_at IS NULL
+	`, id, revokedAt, StatusRevoked)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrAlreadyRevoked
+	}
+	return nil
 }
