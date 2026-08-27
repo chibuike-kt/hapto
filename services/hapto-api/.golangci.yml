@@ -1,0 +1,16 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - gosec
+    - bodyclose
+    - sqlclosecheck
+    - noctx
+
+  exclusions:
+    paths:
+      - gen
