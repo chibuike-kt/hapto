@@ -17,9 +17,9 @@ import (
 func openTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 
-	dsn := os.Getenv("DATABASE_URL")
+	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
-		dsn = "postgres://hapto:hapto@localhost:5432/hapto?sslmode=disable"
+		dsn = "postgres://hapto:hapto@localhost:5432/hapto?sslmode=disable" //nolint:gosec // local-only dev/test credential, matches docker-compose.yml
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -56,7 +56,7 @@ func TestPostgresStore_CreateAndGetByID(t *testing.T) {
 		CreatedAt: time.Now().UTC().Truncate(time.Microsecond),
 	}
 	t.Cleanup(func() {
-		if _, err := pool.Exec(context.Background(), "DELETE FROM devices WHERE id = $1", d.ID); err != nil {
+		if _, err := pool.Exec(context.Background(), "DELETE FROM signing_devices WHERE id = $1", d.ID); err != nil {
 			t.Logf("cleanup: delete device %s: %v", d.ID, err)
 		}
 	})

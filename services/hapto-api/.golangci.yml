@@ -1,3 +1,5 @@
+version: "2"
+
 linters:
   enable:
     - errcheck
@@ -9,6 +11,6 @@ linters:
     - sqlclosecheck
     - noctx
 
-issues:
-  exclude-dirs:
-    - gen
+  exclusions:
+    paths:
+      - gen
