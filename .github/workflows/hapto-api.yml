@@ -54,7 +54,12 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           working-directory: services/hapto-api
-          version: latest
+          version: v2.6.0
+
+      - name: run migrations
+        run: go run ./cmd/migrate up
+        env:
+          DATABASE_URL: postgres://hapto:hapto@localhost:5432/hapto?sslmode=disable
 
       - name: go test
         run: go test -race ./...
