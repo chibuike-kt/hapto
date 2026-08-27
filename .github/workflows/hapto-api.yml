@@ -54,7 +54,6 @@ jobs:
         uses: golangci/golangci-lint-action@v7
         with:
           working-directory: services/hapto-api
-          version: v2.6.0
 
       - name: run migrations
         run: go run ./cmd/migrate up
