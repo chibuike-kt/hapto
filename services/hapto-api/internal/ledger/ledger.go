@@ -74,6 +74,12 @@ type Store interface {
 	CreateWallet(ctx context.Context, w *Wallet) error
 	GetWallet(ctx context.Context, id string) (*Wallet, error)
 
+	// GetWalletByUserID looks up a user's wallet in a given currency.
+	// Wallet provisioning is a separate concern from this package: there is
+	// no implicit create-on-first-use here, a missing wallet is
+	// ErrWalletNotFound.
+	GetWalletByUserID(ctx context.Context, userID, currency string) (*Wallet, error)
+
 	// WriteTransaction persists every entry in in.Entries atomically in a
 	// single Postgres transaction, keyed by in.IdempotencyKey. Reusing a
 	// key returns the original transaction (Replayed set) instead of

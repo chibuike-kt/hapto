@@ -17,6 +17,8 @@ import (
 	"github.com/chibuike-kt/hapto-api/internal/cryptoclient"
 	"github.com/chibuike-kt/hapto-api/internal/device"
 	"github.com/chibuike-kt/hapto-api/internal/email"
+	"github.com/chibuike-kt/hapto-api/internal/intent"
+	"github.com/chibuike-kt/hapto-api/internal/ledger"
 	"github.com/chibuike-kt/hapto-api/internal/migrate"
 	"github.com/chibuike-kt/hapto-api/internal/ratelimit"
 	"github.com/chibuike-kt/hapto-api/internal/session"
@@ -25,6 +27,7 @@ import (
 const (
 	rateLimitBaseBackoff = time.Second
 	rateLimitMaxBackoff  = 5 * time.Minute
+	expirySweepInterval  = 30 * time.Second
 )
 
 func main() {
@@ -103,6 +106,17 @@ func main() {
 	)
 	authHandler := auth.NewHandler(authService, loginLimiter)
 
+	ledgerService := ledger.NewService(ledger.NewPostgresStore(pgPool))
+	intentService := intent.NewService(
+		intent.NewPostgresStore(pgPool),
+		ledgerService,
+		deviceService,
+		cryptoClient,
+		auditLog,
+		cfg.PaymentIntentTTL,
+	)
+	intentHandler := intent.NewHandler(intentService)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /devices", deviceHandler.RegisterDevice)
 	mux.Handle("POST /devices/{id}/revoke", sessionStore.RequireSession(http.HandlerFunc(deviceHandler.RevokeDevice)))
@@ -114,6 +128,12 @@ func main() {
 	mux.HandleFunc("POST /auth/password/reset", authHandler.ResetPassword)
 	mux.Handle("POST /auth/totp/enroll", sessionStore.RequireSession(http.HandlerFunc(authHandler.EnrollTOTP)))
 	mux.Handle("POST /auth/totp/confirm", sessionStore.RequireSession(http.HandlerFunc(authHandler.ConfirmTOTP)))
+
+	mux.HandleFunc("POST /payment-intents", intentHandler.Create)
+	mux.HandleFunc("GET /payment-intents/{id}", intentHandler.Get)
+	mux.HandleFunc("POST /payment-intents/{id}/authorize", intentHandler.Authorize)
+
+	go runExpirySweep(ctx, intentService)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -131,5 +151,29 @@ func main() {
 	log.Printf("hapto-api listening on %s", cfg.HTTPAddr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("serve: %v", err)
+	}
+}
+
+// runExpirySweep periodically moves past-due PENDING payment intents to
+// EXPIRED until ctx is cancelled. A simple timer loop is enough for now —
+// this doesn't need job-queue infrastructure.
+func runExpirySweep(ctx context.Context, svc *intent.Service) {
+	ticker := time.NewTicker(expirySweepInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			n, err := svc.SweepExpired(ctx)
+			if err != nil {
+				log.Printf("expiry sweep: %v", err)
+				continue
+			}
+			if n > 0 {
+				log.Printf("expiry sweep: expired %d payment intent(s)", n)
+			}
+		}
 	}
 }

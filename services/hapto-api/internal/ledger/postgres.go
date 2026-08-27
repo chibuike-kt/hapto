@@ -44,6 +44,20 @@ func (s *PostgresStore) GetWallet(ctx context.Context, id string) (*Wallet, erro
 	return &w, nil
 }
 
+func (s *PostgresStore) GetWalletByUserID(ctx context.Context, userID, currency string) (*Wallet, error) {
+	var w Wallet
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, user_id, currency, created_at FROM wallets WHERE user_id = $1 AND currency = $2
+	`, userID, currency).Scan(&w.ID, &w.UserID, &w.Currency, &w.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrWalletNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &w, nil
+}
+
 // WriteTransaction is the only place ledger_entries rows are ever created.
 // Balance is checked again here even though Service already checked it,
 // entries are written inside one Postgres transaction, and idempotency is
