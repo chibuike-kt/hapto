@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/chibuike-kt/hapto-api/internal/auth"
+	"github.com/chibuike-kt/hapto-api/internal/migrate"
 )
 
 func openTestPool(t *testing.T) *pgxpool.Pool {
@@ -33,6 +34,11 @@ func openTestPool(t *testing.T) *pgxpool.Pool {
 		t.Skipf("postgres not available: %v", err)
 	}
 	t.Cleanup(pool.Close)
+
+	if err := migrate.Up(dsn); err != nil {
+		t.Fatalf("migrate up: %v", err)
+	}
+
 	return pool
 }
 
@@ -61,9 +67,6 @@ func newTestUser(t *testing.T, pool *pgxpool.Pool, store *auth.PostgresStore) *a
 
 func TestPostgresStore_CreateAndGetUser(t *testing.T) {
 	pool := openTestPool(t)
-	if err := auth.ApplySchema(context.Background(), pool); err != nil {
-		t.Fatalf("apply schema: %v", err)
-	}
 	store := auth.NewPostgresStore(pool)
 	u := newTestUser(t, pool, store)
 
@@ -88,9 +91,6 @@ func TestPostgresStore_CreateAndGetUser(t *testing.T) {
 
 func TestPostgresStore_CreateUser_DuplicateEmailRejected(t *testing.T) {
 	pool := openTestPool(t)
-	if err := auth.ApplySchema(context.Background(), pool); err != nil {
-		t.Fatalf("apply schema: %v", err)
-	}
 	store := auth.NewPostgresStore(pool)
 	u := newTestUser(t, pool, store)
 
@@ -109,9 +109,6 @@ func TestPostgresStore_CreateUser_DuplicateEmailRejected(t *testing.T) {
 
 func TestPostgresStore_TOTPUpsertAndEnable(t *testing.T) {
 	pool := openTestPool(t)
-	if err := auth.ApplySchema(context.Background(), pool); err != nil {
-		t.Fatalf("apply schema: %v", err)
-	}
 	store := auth.NewPostgresStore(pool)
 	u := newTestUser(t, pool, store)
 	ctx := context.Background()
@@ -157,9 +154,6 @@ func TestPostgresStore_TOTPUpsertAndEnable(t *testing.T) {
 
 func TestPostgresStore_ApplyPasswordReset_SingleUse(t *testing.T) {
 	pool := openTestPool(t)
-	if err := auth.ApplySchema(context.Background(), pool); err != nil {
-		t.Fatalf("apply schema: %v", err)
-	}
 	store := auth.NewPostgresStore(pool)
 	u := newTestUser(t, pool, store)
 	ctx := context.Background()

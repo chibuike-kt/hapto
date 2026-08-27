@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE users (
     id UUID PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
@@ -6,13 +6,13 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMPTZ NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS auth_totp (
+CREATE TABLE auth_totp (
     user_id UUID PRIMARY KEY REFERENCES users(id),
     secret BYTEA NOT NULL,
     enabled_at TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS password_reset_tokens (
+CREATE TABLE password_reset_tokens (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id),
     token_hash TEXT NOT NULL UNIQUE,
@@ -21,4 +21,4 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
     created_at TIMESTAMPTZ NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens (user_id);
+CREATE INDEX idx_password_reset_tokens_user_id ON password_reset_tokens (user_id);

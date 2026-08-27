@@ -2,23 +2,11 @@ package device
 
 import (
 	"context"
-	_ "embed"
 	"errors"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
-//go:embed schema.sql
-var schemaSQL string
-
-// ApplySchema creates the signing_devices table if it doesn't already exist. There's
-// exactly one table here, so a migration tool would be more machinery than
-// the schema warrants.
-func ApplySchema(ctx context.Context, pool *pgxpool.Pool) error {
-	_, err := pool.Exec(ctx, schemaSQL)
-	return err
-}
 
 var ErrNotFound = errors.New("device not found")
 

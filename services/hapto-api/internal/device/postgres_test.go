@@ -12,12 +12,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/chibuike-kt/hapto-api/internal/device"
+	"github.com/chibuike-kt/hapto-api/internal/migrate"
 )
 
 func openTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 
-	dsn := os.Getenv("TEST_DATABASE_URL")
+	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		dsn = "postgres://hapto:hapto@localhost:5432/hapto?sslmode=disable" //nolint:gosec // local-only dev/test credential, matches docker-compose.yml
 	}
@@ -34,6 +35,11 @@ func openTestPool(t *testing.T) *pgxpool.Pool {
 		t.Skipf("postgres not available: %v", err)
 	}
 	t.Cleanup(pool.Close)
+
+	if err := migrate.Up(dsn); err != nil {
+		t.Fatalf("migrate up: %v", err)
+	}
+
 	return pool
 }
 
@@ -41,9 +47,6 @@ func TestPostgresStore_CreateAndGetByID(t *testing.T) {
 	pool := openTestPool(t)
 
 	ctx := context.Background()
-	if err := device.ApplySchema(ctx, pool); err != nil {
-		t.Fatalf("apply schema: %v", err)
-	}
 
 	store := device.NewPostgresStore(pool)
 
@@ -90,9 +93,6 @@ func TestPostgresStore_GetByID_NotFound(t *testing.T) {
 	pool := openTestPool(t)
 
 	ctx := context.Background()
-	if err := device.ApplySchema(ctx, pool); err != nil {
-		t.Fatalf("apply schema: %v", err)
-	}
 
 	store := device.NewPostgresStore(pool)
 

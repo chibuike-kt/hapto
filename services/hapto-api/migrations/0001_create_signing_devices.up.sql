@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS signing_devices (
+CREATE TABLE signing_devices (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL,
     public_key BYTEA NOT NULL UNIQUE,

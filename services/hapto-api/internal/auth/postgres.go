@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	_ "embed"
 	"errors"
 	"fmt"
 	"time"
@@ -11,16 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
-//go:embed schema.sql
-var schemaSQL string
-
-// ApplySchema creates the auth tables (users, auth_totp,
-// password_reset_tokens) if they don't already exist.
-func ApplySchema(ctx context.Context, pool *pgxpool.Pool) error {
-	_, err := pool.Exec(ctx, schemaSQL)
-	return err
-}
 
 const uniqueViolation = "23505"
 
