@@ -47,6 +47,10 @@ func (s *Service) Balance(ctx context.Context, walletID string) (int64, error) {
 	return s.store.Balance(ctx, walletID)
 }
 
+func (s *Service) GetWalletByUserID(ctx context.Context, userID, currency string) (*Wallet, error) {
+	return s.store.GetWalletByUserID(ctx, userID, currency)
+}
+
 // Reconcile confirms the sum of every entry in the system nets to zero.
 // Callable on demand for now; wire it into a scheduled job later. A non-nil
 // result is a page, not a log line.

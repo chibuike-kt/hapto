@@ -32,6 +32,15 @@ func (f *fakeStore) GetWallet(_ context.Context, id string) (*ledger.Wallet, err
 	return w, nil
 }
 
+func (f *fakeStore) GetWalletByUserID(_ context.Context, userID, currency string) (*ledger.Wallet, error) {
+	for _, w := range f.wallets {
+		if w.UserID == userID && w.Currency == currency {
+			return w, nil
+		}
+	}
+	return nil, ledger.ErrWalletNotFound
+}
+
 func (f *fakeStore) WriteTransaction(_ context.Context, in ledger.TransactionInput) (*ledger.Transaction, error) {
 	f.written = append(f.written, in)
 	entries := make([]ledger.Entry, len(in.Entries))
