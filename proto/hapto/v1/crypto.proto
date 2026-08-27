@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package hapto.v1;
+
+option go_package = "github.com/chibuike-kt/hapto-api/gen/hapto/v1;haptov1";
+
+enum SignatureAlgorithm {
+  SIGNATURE_ALGORITHM_UNSPECIFIED = 0;
+  SIGNATURE_ALGORITHM_ED25519 = 1;
+}
+
+message VerifySignatureRequest {
+  bytes public_key = 1;
+  SignatureAlgorithm algorithm = 2;
+  bytes message = 3;
+  bytes signature = 4;
+}
+
+message VerifySignatureResponse {
+  bool valid = 1;
+  string reason = 2;
+}
+
+message GenerateNonceRequest {
+  uint32 size_bytes = 1;
+}
+
+message GenerateNonceResponse {
+  bytes nonce = 1;
+}
+
+message ValidatePublicKeyRequest {
+  bytes public_key = 1;
+  SignatureAlgorithm algorithm = 2;
+}
+
+message ValidatePublicKeyResponse {
+  bool valid = 1;
+  string reason = 2;
+}
+
+service CryptoService {
+  rpc VerifySignature(VerifySignatureRequest) returns (VerifySignatureResponse);
+  rpc GenerateNonce(GenerateNonceRequest) returns (GenerateNonceResponse);
+  rpc ValidatePublicKey(ValidatePublicKeyRequest) returns (ValidatePublicKeyResponse);
+}

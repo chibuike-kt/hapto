@@ -1,10 +1,6 @@
 version: v2
 plugins:
-  - remote: buf.build/protocolbuffers/go
-    out: ../services/hapto-api/gen
-  - remote: buf.build/grpc/go
-    out: ../services/hapto-api/gen
   - remote: buf.build/community/neoeinstein-prost
-    out: ../services/hapto-crypto/src/gen
+    out: ../services/hapto-crypto/src/generated
   - remote: buf.build/community/neoeinstein-tonic
-    out: ../services/hapto-crypto/src/gen
+    out: ../services/hapto-crypto/src/generated
