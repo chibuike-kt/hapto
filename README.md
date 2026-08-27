@@ -89,6 +89,37 @@ cd services/hapto-api
 go run ./cmd/server
 ```
 
+`cmd/server` applies every pending migration on startup before it accepts
+requests, so a fresh database (a new volume, or CI's ephemeral Postgres
+service) just works. There's no other schema source: `migrations/` is the
+single source of truth.
+
+#### Migrations
+
+Migrations live in `services/hapto-api/migrations/` as paired
+`NNNN_description.up.sql` / `.down.sql` files, run with
+[golang-migrate](https://github.com/golang-migrate/migrate). Run them by
+hand with the `cmd/migrate` command:
+
+```bash
+cd services/hapto-api
+
+go run ./cmd/migrate up      # apply every pending migration
+go run ./cmd/migrate down    # reverse every migration, back to empty
+```
+
+Both default to `$DATABASE_URL`, falling back to the local dev connection
+string in `.env.example` if that's unset. Point at a different database
+with `-database`:
+
+```bash
+go run ./cmd/migrate up -database "postgres://user:pass@host:5432/db?sslmode=disable"
+```
+
+Add a new migration by creating the next-numbered `.up.sql`/`.down.sql`
+pair; the down file should reverse the up file exactly (drop what it
+created, in reverse dependency order).
+
 ### hapto-mobile
 
 ```bash
