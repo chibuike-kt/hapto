@@ -7,8 +7,29 @@ import (
 	"time"
 
 	haptov1 "github.com/chibuike-kt/hapto-api/gen/hapto/v1"
+	"github.com/chibuike-kt/hapto-api/internal/audit"
 	"github.com/chibuike-kt/hapto-api/internal/device"
 )
+
+type fakeAuditLogger struct {
+	entries []audit.Entry
+	failErr error
+}
+
+func (f *fakeAuditLogger) Log(_ context.Context, entry audit.Entry) error {
+	f.entries = append(f.entries, entry)
+	return f.failErr
+}
+
+// findEntry returns the last logged entry for an action, or nil.
+func (f *fakeAuditLogger) findEntry(action string) *audit.Entry {
+	for i := len(f.entries) - 1; i >= 0; i-- {
+		if f.entries[i].Action == action {
+			return &f.entries[i]
+		}
+	}
+	return nil
+}
 
 type fakeStore struct {
 	created *device.Device
@@ -49,7 +70,7 @@ func (f *fakeValidator) ValidatePublicKey(_ context.Context, _ []byte, _ haptov1
 
 func TestService_Register_ValidKeyIsStored(t *testing.T) {
 	store := &fakeStore{}
-	svc := device.NewService(store, &fakeValidator{valid: true})
+	svc := device.NewService(store, &fakeValidator{valid: true}, &fakeAuditLogger{})
 
 	d, err := svc.Register(context.Background(), device.RegisterInput{
 		UserID:    "user-1",
@@ -69,7 +90,7 @@ func TestService_Register_ValidKeyIsStored(t *testing.T) {
 
 func TestService_Register_RejectsInvalidKey(t *testing.T) {
 	store := &fakeStore{}
-	svc := device.NewService(store, &fakeValidator{valid: false, reason: "malformed key"})
+	svc := device.NewService(store, &fakeValidator{valid: false, reason: "malformed key"}, &fakeAuditLogger{})
 
 	_, err := svc.Register(context.Background(), device.RegisterInput{
 		UserID:    "user-1",
@@ -86,7 +107,7 @@ func TestService_Register_RejectsInvalidKey(t *testing.T) {
 
 func TestService_Register_RejectsUnsupportedAlgorithm(t *testing.T) {
 	store := &fakeStore{}
-	svc := device.NewService(store, &fakeValidator{valid: true})
+	svc := device.NewService(store, &fakeValidator{valid: true}, &fakeAuditLogger{})
 
 	_, err := svc.Register(context.Background(), device.RegisterInput{
 		UserID:    "user-1",

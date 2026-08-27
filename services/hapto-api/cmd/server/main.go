@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/chibuike-kt/hapto-api/internal/audit"
 	"github.com/chibuike-kt/hapto-api/internal/auth"
 	"github.com/chibuike-kt/hapto-api/internal/config"
 	"github.com/chibuike-kt/hapto-api/internal/cryptoclient"
@@ -64,7 +65,11 @@ func main() {
 		log.Fatalf("connect redis: %v", err)
 	}
 
-	cryptoClient, err := cryptoclient.Dial(cfg.CryptoAddr)
+	cryptoClient, err := cryptoclient.Dial(cfg.CryptoAddr, cryptoclient.TLSConfig{
+		CertFile: cfg.CryptoTLSCert,
+		KeyFile:  cfg.CryptoTLSKey,
+		CAFile:   cfg.CryptoTLSCA,
+	})
 	if err != nil {
 		log.Fatalf("dial hapto-crypto: %v", err)
 	}
@@ -74,7 +79,9 @@ func main() {
 		}
 	}()
 
-	deviceService := device.NewService(device.NewPostgresStore(pgPool), cryptoClient)
+	auditLog := audit.NewPostgresStore(pgPool)
+
+	deviceService := device.NewService(device.NewPostgresStore(pgPool), cryptoClient, auditLog)
 	deviceHandler := device.NewHandler(deviceService)
 
 	sessionStore := session.NewStore(redisClient, cfg.SessionIdleTTL, cfg.SessionMaxTTL)
@@ -87,6 +94,7 @@ func main() {
 		auth.NewLockoutTracker(redisClient),
 		auth.NewPendingLoginStore(redisClient),
 		mailer,
+		auditLog,
 		auth.ServiceConfig{
 			Pepper:       cfg.PasswordPepper,
 			TOTPKey:      cfg.TOTPEncryptionKey,

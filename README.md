@@ -21,7 +21,7 @@ standard as a proof of capability.
                 |  Risk              |
                 +-------+-------+
                         |
-                      gRPC
+                   gRPC (mTLS)
                         |
                 +---------------+
                 |  hapto-crypto |   Rust
@@ -53,6 +53,7 @@ sees a private key, only public keys and signatures it asks
 - Node 22+
 - `protoc` (Protocol Buffers compiler)
 - `buf` (`npm install -g @bufbuild/buf`)
+- `openssl` (for `scripts/gen-certs.sh`, the local mTLS certs)
 - Docker (for Postgres and Redis locally)
 - Android Studio + a physical Android device (BLE does not work in emulators)
 
@@ -73,6 +74,13 @@ cp services/hapto-crypto/.env.example services/hapto-crypto/.env
 cp apps/hapto-mobile/.env.example apps/hapto-mobile/.env
 ```
 
+Generate local mTLS certs (needed before either service will start — see
+[mTLS certificates](#mtls-certificates) below):
+
+```bash
+./scripts/gen-certs.sh
+```
+
 ### hapto-crypto
 
 ```bash
@@ -80,7 +88,8 @@ cd services/hapto-crypto
 cargo run
 ```
 
-Listens on `localhost:50051`.
+Listens on `localhost:50051`. Requires mTLS certs (see below) — it refuses
+to start without its server cert/key/CA configured.
 
 ### hapto-api
 
@@ -119,6 +128,40 @@ go run ./cmd/migrate up -database "postgres://user:pass@host:5432/db?sslmode=dis
 Add a new migration by creating the next-numbered `.up.sql`/`.down.sql`
 pair; the down file should reverse the up file exactly (drop what it
 created, in reverse dependency order).
+
+### mTLS certificates
+
+The gRPC connection between `hapto-api` and `hapto-crypto` is mutual TLS:
+each side presents a certificate the other verifies against a shared local
+CA, and each refuses the connection if the peer doesn't present one signed
+by it. There is no plaintext fallback.
+
+Generate a CA and both services' certs with:
+
+```bash
+./scripts/gen-certs.sh
+```
+
+This wipes and regenerates everything under `certs/` (gitignored — nothing
+here is ever committed) as:
+
+| File | Used by |
+|---|---|
+| `certs/ca.crt` / `ca.key` | Trust root both services verify the other against |
+| `certs/hapto-crypto.crt` / `.key` | hapto-crypto's server identity |
+| `certs/hapto-api.crt` / `.key` | hapto-api's client identity |
+
+Both services read the same three env var names — `HAPTO_CRYPTO_TLS_CERT`,
+`HAPTO_CRYPTO_TLS_KEY`, `HAPTO_CRYPTO_TLS_CA` — each pointed at its own
+cert/key and the shared CA (see each service's `.env.example`). Defaults
+assume the standard local-dev run location (`services/hapto-crypto` and
+`services/hapto-api` respectively) and the default `certs/` output above,
+so a fresh `./scripts/gen-certs.sh` followed by `cargo run` /
+`go run ./cmd/server` just works without setting anything.
+
+Re-run `./scripts/gen-certs.sh` any time — it's a repeatable build step,
+not a one-time secret. A real deployment generates its own certs (or uses
+a real CA) and injects them however that environment manages secrets.
 
 ### hapto-mobile
 

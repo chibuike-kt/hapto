@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/pquerna/otp/totp"
+
+	"github.com/chibuike-kt/hapto-api/internal/audit"
 )
 
 type LoginStatus string
@@ -49,6 +52,7 @@ type Service struct {
 	lockout  Lockout
 	pending  PendingLogins
 	mailer   Mailer
+	auditLog audit.Logger
 
 	pepper       string
 	totpKey      []byte
@@ -56,7 +60,7 @@ type Service struct {
 	resetBaseURL string
 }
 
-func NewService(store Store, sessions Sessions, lockout Lockout, pending PendingLogins, mailer Mailer, cfg ServiceConfig) *Service {
+func NewService(store Store, sessions Sessions, lockout Lockout, pending PendingLogins, mailer Mailer, auditLog audit.Logger, cfg ServiceConfig) *Service {
 	issuer := cfg.TOTPIssuer
 	if issuer == "" {
 		issuer = "hapto"
@@ -67,10 +71,25 @@ func NewService(store Store, sessions Sessions, lockout Lockout, pending Pending
 		lockout:      lockout,
 		pending:      pending,
 		mailer:       mailer,
+		auditLog:     auditLog,
 		pepper:       cfg.Pepper,
 		totpKey:      cfg.TOTPKey,
 		totpIssuer:   issuer,
 		resetBaseURL: cfg.ResetBaseURL,
+	}
+}
+
+// logAudit records a security event. Audit logging must never block or
+// fail the action it describes: a write failure here is logged and
+// swallowed, never returned to the caller. Failing a login (or any other
+// primary action) because the audit trail couldn't be written would be
+// strictly worse than the alternative of a gap in that trail.
+func (s *Service) logAudit(ctx context.Context, entry audit.Entry) {
+	if s.auditLog == nil {
+		return
+	}
+	if err := s.auditLog.Log(ctx, entry); err != nil {
+		log.Printf("audit log failed for action %s: %v", entry.Action, err)
 	}
 }
 
@@ -111,6 +130,11 @@ func (s *Service) Login(ctx context.Context, email, password string) (*LoginResu
 	user, err := s.store.GetUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
+			s.logAudit(ctx, audit.Entry{
+				Action:     audit.ActionLoginFailed,
+				TargetType: audit.TargetTypeUser,
+				Metadata:   map[string]any{"email": email, "reason": "unknown_email"},
+			})
 			return nil, ErrInvalidCredentials
 		}
 		return nil, fmt.Errorf("get user: %w", err)
@@ -121,6 +145,13 @@ func (s *Service) Login(ctx context.Context, email, password string) (*LoginResu
 		return nil, fmt.Errorf("check lockout: %w", err)
 	}
 	if locked {
+		s.logAudit(ctx, audit.Entry{
+			ActorUserID: new(user.ID),
+			Action:      audit.ActionLoginFailed,
+			TargetType:  audit.TargetTypeUser,
+			TargetID:    new(user.ID),
+			Metadata:    map[string]any{"reason": "account_locked"},
+		})
 		return nil, &LockedError{RetryAfter: retryAfter}
 	}
 
@@ -129,8 +160,24 @@ func (s *Service) Login(ctx context.Context, email, password string) (*LoginResu
 		return nil, fmt.Errorf("verify password: %w", err)
 	}
 	if !ok {
-		if err := s.lockout.RecordFailure(ctx, user.ID); err != nil {
+		justLocked, err := s.lockout.RecordFailure(ctx, user.ID)
+		if err != nil {
 			return nil, fmt.Errorf("record failure: %w", err)
+		}
+		s.logAudit(ctx, audit.Entry{
+			ActorUserID: new(user.ID),
+			Action:      audit.ActionLoginFailed,
+			TargetType:  audit.TargetTypeUser,
+			TargetID:    new(user.ID),
+			Metadata:    map[string]any{"reason": "wrong_password"},
+		})
+		if justLocked {
+			s.logAudit(ctx, audit.Entry{
+				ActorUserID: new(user.ID),
+				Action:      audit.ActionLoginLockedOut,
+				TargetType:  audit.TargetTypeUser,
+				TargetID:    new(user.ID),
+			})
 		}
 		return nil, ErrInvalidCredentials
 	}
@@ -148,14 +195,30 @@ func (s *Service) Login(ctx context.Context, email, password string) (*LoginResu
 		return &LoginResult{Status: LoginStatusTOTPRequired, PendingLoginID: pendingID}, nil
 	}
 
-	if err := s.lockout.Reset(ctx, user.ID); err != nil {
+	cleared, err := s.lockout.Reset(ctx, user.ID)
+	if err != nil {
 		return nil, fmt.Errorf("reset lockout: %w", err)
+	}
+	if cleared {
+		s.logAudit(ctx, audit.Entry{
+			ActorUserID: new(user.ID),
+			Action:      audit.ActionLockoutCleared,
+			TargetType:  audit.TargetTypeUser,
+			TargetID:    new(user.ID),
+		})
 	}
 
 	token, err := s.sessions.Create(ctx, user.ID)
 	if err != nil {
 		return nil, fmt.Errorf("create session: %w", err)
 	}
+
+	s.logAudit(ctx, audit.Entry{
+		ActorUserID: new(user.ID),
+		Action:      audit.ActionLoginSucceeded,
+		TargetType:  audit.TargetTypeUser,
+		TargetID:    new(user.ID),
+	})
 
 	return &LoginResult{Status: LoginStatusOK, SessionToken: token}, nil
 }
@@ -171,6 +234,13 @@ func (s *Service) VerifyTOTPLogin(ctx context.Context, pendingLoginID, code stri
 		return nil, fmt.Errorf("check lockout: %w", err)
 	}
 	if locked {
+		s.logAudit(ctx, audit.Entry{
+			ActorUserID: new(userID),
+			Action:      audit.ActionLoginFailed,
+			TargetType:  audit.TargetTypeUser,
+			TargetID:    new(userID),
+			Metadata:    map[string]any{"reason": "account_locked"},
+		})
 		return nil, &LockedError{RetryAfter: retryAfter}
 	}
 
@@ -191,8 +261,24 @@ func (s *Service) VerifyTOTPLogin(ctx context.Context, pendingLoginID, code stri
 	}
 
 	if !totp.Validate(code, string(secret)) {
-		if err := s.lockout.RecordFailure(ctx, userID); err != nil {
+		justLocked, err := s.lockout.RecordFailure(ctx, userID)
+		if err != nil {
 			return nil, fmt.Errorf("record failure: %w", err)
+		}
+		s.logAudit(ctx, audit.Entry{
+			ActorUserID: new(userID),
+			Action:      audit.ActionLoginFailed,
+			TargetType:  audit.TargetTypeUser,
+			TargetID:    new(userID),
+			Metadata:    map[string]any{"reason": "invalid_totp_code"},
+		})
+		if justLocked {
+			s.logAudit(ctx, audit.Entry{
+				ActorUserID: new(userID),
+				Action:      audit.ActionLoginLockedOut,
+				TargetType:  audit.TargetTypeUser,
+				TargetID:    new(userID),
+			})
 		}
 		return nil, ErrInvalidTOTPCode
 	}
@@ -200,14 +286,30 @@ func (s *Service) VerifyTOTPLogin(ctx context.Context, pendingLoginID, code stri
 	if err := s.pending.Delete(ctx, pendingLoginID); err != nil {
 		return nil, fmt.Errorf("delete pending login: %w", err)
 	}
-	if err := s.lockout.Reset(ctx, userID); err != nil {
+	cleared, err := s.lockout.Reset(ctx, userID)
+	if err != nil {
 		return nil, fmt.Errorf("reset lockout: %w", err)
+	}
+	if cleared {
+		s.logAudit(ctx, audit.Entry{
+			ActorUserID: new(userID),
+			Action:      audit.ActionLockoutCleared,
+			TargetType:  audit.TargetTypeUser,
+			TargetID:    new(userID),
+		})
 	}
 
 	token, err := s.sessions.Create(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("create session: %w", err)
 	}
+
+	s.logAudit(ctx, audit.Entry{
+		ActorUserID: new(userID),
+		Action:      audit.ActionLoginSucceeded,
+		TargetType:  audit.TargetTypeUser,
+		TargetID:    new(userID),
+	})
 
 	return &LoginResult{Status: LoginStatusOK, SessionToken: token}, nil
 }
@@ -270,7 +372,18 @@ func (s *Service) ConfirmTOTP(ctx context.Context, userID, code string) error {
 		return ErrInvalidTOTPCode
 	}
 
-	return s.store.EnableTOTP(ctx, userID, time.Now().UTC())
+	if err := s.store.EnableTOTP(ctx, userID, time.Now().UTC()); err != nil {
+		return err
+	}
+
+	s.logAudit(ctx, audit.Entry{
+		ActorUserID: new(userID),
+		Action:      audit.ActionTOTPEnrolled,
+		TargetType:  audit.TargetTypeUser,
+		TargetID:    new(userID),
+	})
+
+	return nil
 }
 
 // ForgotPassword never reports whether the email exists: on a miss it
@@ -281,6 +394,11 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	user, err := s.store.GetUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
+			s.logAudit(ctx, audit.Entry{
+				Action:     audit.ActionPasswordResetRequested,
+				TargetType: audit.TargetTypeUser,
+				Metadata:   map[string]any{"email": email, "found": false},
+			})
 			return nil
 		}
 		return fmt.Errorf("get user: %w", err)
@@ -306,6 +424,14 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	if err := s.mailer.SendPasswordReset(ctx, user.Email, link); err != nil {
 		return fmt.Errorf("send reset email: %w", err)
 	}
+
+	s.logAudit(ctx, audit.Entry{
+		ActorUserID: new(user.ID),
+		Action:      audit.ActionPasswordResetRequested,
+		TargetType:  audit.TargetTypeUser,
+		TargetID:    new(user.ID),
+		Metadata:    map[string]any{"found": true},
+	})
 
 	return nil
 }
@@ -338,6 +464,13 @@ func (s *Service) ResetPassword(ctx context.Context, rawToken, newPassword strin
 	if err := s.sessions.DeleteAllForUser(ctx, record.UserID); err != nil {
 		return fmt.Errorf("invalidate sessions: %w", err)
 	}
+
+	s.logAudit(ctx, audit.Entry{
+		ActorUserID: new(record.UserID),
+		Action:      audit.ActionPasswordResetCompleted,
+		TargetType:  audit.TargetTypeUser,
+		TargetID:    new(record.UserID),
+	})
 
 	return nil
 }
