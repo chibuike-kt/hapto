@@ -11,13 +11,25 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/chibuike-kt/hapto-api/internal/auth"
 	"github.com/chibuike-kt/hapto-api/internal/config"
 	"github.com/chibuike-kt/hapto-api/internal/cryptoclient"
 	"github.com/chibuike-kt/hapto-api/internal/device"
+	"github.com/chibuike-kt/hapto-api/internal/email"
+	"github.com/chibuike-kt/hapto-api/internal/ratelimit"
+	"github.com/chibuike-kt/hapto-api/internal/session"
+)
+
+const (
+	rateLimitBaseBackoff = time.Second
+	rateLimitMaxBackoff  = 5 * time.Minute
 )
 
 func main() {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("load config: %v", err)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -34,6 +46,9 @@ func main() {
 
 	if err := device.ApplySchema(ctx, pgPool); err != nil {
 		log.Fatalf("apply device schema: %v", err)
+	}
+	if err := auth.ApplySchema(ctx, pgPool); err != nil {
+		log.Fatalf("apply auth schema: %v", err)
 	}
 
 	redisOpts, err := redis.ParseURL(cfg.RedisURL)
@@ -64,8 +79,34 @@ func main() {
 	deviceService := device.NewService(device.NewPostgresStore(pgPool), cryptoClient)
 	deviceHandler := device.NewHandler(deviceService)
 
+	sessionStore := session.NewStore(redisClient, cfg.SessionIdleTTL, cfg.SessionMaxTTL)
+	loginLimiter := ratelimit.NewLimiter(redisClient, rateLimitBaseBackoff, rateLimitMaxBackoff)
+	mailer := email.NewClient(cfg.ResendAPIKey, cfg.EmailFrom)
+
+	authService := auth.NewService(
+		auth.NewPostgresStore(pgPool),
+		sessionStore,
+		auth.NewLockoutTracker(redisClient),
+		auth.NewPendingLoginStore(redisClient),
+		mailer,
+		auth.ServiceConfig{
+			Pepper:       cfg.PasswordPepper,
+			TOTPKey:      cfg.TOTPEncryptionKey,
+			ResetBaseURL: cfg.AppBaseURL,
+		},
+	)
+	authHandler := auth.NewHandler(authService, loginLimiter)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /devices", deviceHandler.RegisterDevice)
+
+	mux.HandleFunc("POST /auth/signup", authHandler.Signup)
+	mux.HandleFunc("POST /auth/login", authHandler.Login)
+	mux.HandleFunc("POST /auth/login/verify-totp", authHandler.VerifyTOTPLogin)
+	mux.HandleFunc("POST /auth/password/forgot", authHandler.ForgotPassword)
+	mux.HandleFunc("POST /auth/password/reset", authHandler.ResetPassword)
+	mux.Handle("POST /auth/totp/enroll", sessionStore.RequireSession(http.HandlerFunc(authHandler.EnrollTOTP)))
+	mux.Handle("POST /auth/totp/confirm", sessionStore.RequireSession(http.HandlerFunc(authHandler.ConfirmTOTP)))
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
