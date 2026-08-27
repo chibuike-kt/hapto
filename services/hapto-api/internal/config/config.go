@@ -17,6 +17,10 @@ type Config struct {
 	RedisURL    string
 	CryptoAddr  string
 
+	CryptoTLSCert string
+	CryptoTLSKey  string
+	CryptoTLSCA   string
+
 	PasswordPepper    string
 	TOTPEncryptionKey []byte
 	SessionIdleTTL    time.Duration
@@ -47,6 +51,10 @@ func Load() (Config, error) {
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://hapto:hapto@localhost:5432/hapto?sslmode=disable"),
 		RedisURL:    getEnv("REDIS_URL", "redis://localhost:6379/0"),
 		CryptoAddr:  getEnv("HAPTO_CRYPTO_ADDR", "localhost:50051"),
+
+		CryptoTLSCert: getEnv("HAPTO_CRYPTO_TLS_CERT", "../../certs/hapto-api.crt"),
+		CryptoTLSKey:  getEnv("HAPTO_CRYPTO_TLS_KEY", "../../certs/hapto-api.key"),
+		CryptoTLSCA:   getEnv("HAPTO_CRYPTO_TLS_CA", "../../certs/ca.crt"),
 
 		PasswordPepper:    getEnv("AUTH_PASSWORD_PEPPER", ""),
 		TOTPEncryptionKey: totpKey,

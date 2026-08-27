@@ -94,8 +94,8 @@ type Mailer interface {
 // *LockoutTracker in production; fakeable in unit tests.
 type Lockout interface {
 	IsLocked(ctx context.Context, userID string) (locked bool, retryAfter time.Duration, err error)
-	RecordFailure(ctx context.Context, userID string) error
-	Reset(ctx context.Context, userID string) error
+	RecordFailure(ctx context.Context, userID string) (locked bool, err error)
+	Reset(ctx context.Context, userID string) (cleared bool, err error)
 }
 
 // PendingLogins holds the state between a password check that requires a

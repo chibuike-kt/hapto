@@ -12,6 +12,7 @@ import (
 
 	"github.com/pquerna/otp/totp"
 
+	"github.com/chibuike-kt/hapto-api/internal/audit"
 	"github.com/chibuike-kt/hapto-api/internal/auth"
 )
 
@@ -176,17 +177,40 @@ func (f *fakeLockout) IsLocked(_ context.Context, userID string) (bool, time.Dur
 	return ok, d, nil
 }
 
-func (f *fakeLockout) RecordFailure(_ context.Context, userID string) error {
+func (f *fakeLockout) RecordFailure(_ context.Context, userID string) (bool, error) {
 	f.failures[userID]++
 	if f.failures[userID] >= 5 {
 		f.locked[userID] = 15 * time.Minute
+		return true, nil
 	}
-	return nil
+	return false, nil
 }
 
-func (f *fakeLockout) Reset(_ context.Context, userID string) error {
+func (f *fakeLockout) Reset(_ context.Context, userID string) (bool, error) {
+	_, hadFailures := f.failures[userID]
+	_, wasLocked := f.locked[userID]
 	delete(f.failures, userID)
 	delete(f.locked, userID)
+	return hadFailures || wasLocked, nil
+}
+
+type fakeAuditLogger struct {
+	entries []audit.Entry
+	failErr error
+}
+
+func (f *fakeAuditLogger) Log(_ context.Context, entry audit.Entry) error {
+	f.entries = append(f.entries, entry)
+	return f.failErr
+}
+
+// findEntry returns the last logged entry for an action, or nil.
+func (f *fakeAuditLogger) findEntry(action string) *audit.Entry {
+	for i := len(f.entries) - 1; i >= 0; i-- {
+		if f.entries[i].Action == action {
+			return &f.entries[i]
+		}
+	}
 	return nil
 }
 
@@ -227,6 +251,7 @@ type harness struct {
 	lockout  *fakeLockout
 	pending  *fakePending
 	mailer   *fakeMailer
+	auditLog *fakeAuditLogger
 	service  *auth.Service
 }
 
@@ -237,10 +262,11 @@ func newHarness() *harness {
 		lockout:  newFakeLockout(),
 		pending:  newFakePending(),
 		mailer:   &fakeMailer{},
+		auditLog: &fakeAuditLogger{},
 	}
 	key := make([]byte, 32)
 	_, _ = rand.Read(key)
-	h.service = auth.NewService(h.store, h.sessions, h.lockout, h.pending, h.mailer, auth.ServiceConfig{
+	h.service = auth.NewService(h.store, h.sessions, h.lockout, h.pending, h.mailer, h.auditLog, auth.ServiceConfig{
 		Pepper:       "test-pepper",
 		TOTPKey:      key,
 		TOTPIssuer:   "hapto-test",

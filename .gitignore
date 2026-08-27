@@ -17,5 +17,8 @@ build/
 .env
 .env.local
 
+# mTLS certs — generated locally by scripts/gen-certs.sh, never committed
+certs/
+
 # OS
 .DS_Store

@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
 
 	haptov1 "github.com/chibuike-kt/hapto-api/gen/hapto/v1"
+	"github.com/chibuike-kt/hapto-api/internal/audit"
 )
 
 var ErrInvalidPublicKey = errors.New("invalid public key")
@@ -25,10 +27,24 @@ type Validator interface {
 type Service struct {
 	store     Store
 	validator Validator
+	auditLog  audit.Logger
 }
 
-func NewService(store Store, validator Validator) *Service {
-	return &Service{store: store, validator: validator}
+func NewService(store Store, validator Validator, auditLog audit.Logger) *Service {
+	return &Service{store: store, validator: validator, auditLog: auditLog}
+}
+
+// logAudit records a security event. Audit logging must never block or
+// fail the action it describes: a write failure here is logged and
+// swallowed, never returned to the caller — see internal/auth's identical
+// helper for the full rationale, which applies here unchanged.
+func (s *Service) logAudit(ctx context.Context, entry audit.Entry) {
+	if s.auditLog == nil {
+		return
+	}
+	if err := s.auditLog.Log(ctx, entry); err != nil {
+		log.Printf("audit log failed for action %s: %v", entry.Action, err)
+	}
 }
 
 type RegisterInput struct {
@@ -64,6 +80,14 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*Device, erro
 		return nil, fmt.Errorf("create device: %w", err)
 	}
 
+	s.logAudit(ctx, audit.Entry{
+		ActorUserID: new(in.UserID),
+		Action:      audit.ActionDeviceRegistered,
+		TargetType:  audit.TargetTypeDevice,
+		TargetID:    new(d.ID),
+		Metadata:    map[string]any{"algorithm": string(in.Algorithm)},
+	})
+
 	return d, nil
 }
 
@@ -85,6 +109,13 @@ func (s *Service) Revoke(ctx context.Context, id, callerUserID string) error {
 	if err := s.store.Revoke(ctx, id, time.Now().UTC()); err != nil {
 		return fmt.Errorf("revoke device: %w", err)
 	}
+
+	s.logAudit(ctx, audit.Entry{
+		ActorUserID: new(callerUserID),
+		Action:      audit.ActionDeviceRevoked,
+		TargetType:  audit.TargetTypeDevice,
+		TargetID:    new(id),
+	})
 	return nil
 }
 

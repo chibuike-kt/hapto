@@ -10,7 +10,7 @@ import (
 
 func registerTestDevice(t *testing.T, store *fakeStore, userID string) *device.Device {
 	t.Helper()
-	svc := device.NewService(store, &fakeValidator{valid: true})
+	svc := device.NewService(store, &fakeValidator{valid: true}, &fakeAuditLogger{})
 
 	d, err := svc.Register(context.Background(), device.RegisterInput{
 		UserID:    userID,
@@ -26,7 +26,7 @@ func registerTestDevice(t *testing.T, store *fakeStore, userID string) *device.D
 func TestService_Revoke_Success(t *testing.T) {
 	store := &fakeStore{}
 	d := registerTestDevice(t, store, "user-1")
-	svc := device.NewService(store, &fakeValidator{valid: true})
+	svc := device.NewService(store, &fakeValidator{valid: true}, &fakeAuditLogger{})
 
 	if err := svc.Revoke(context.Background(), d.ID, "user-1"); err != nil {
 		t.Fatalf("revoke: %v", err)
@@ -43,7 +43,7 @@ func TestService_Revoke_Success(t *testing.T) {
 func TestService_Revoke_AlreadyRevokedFails(t *testing.T) {
 	store := &fakeStore{}
 	d := registerTestDevice(t, store, "user-1")
-	svc := device.NewService(store, &fakeValidator{valid: true})
+	svc := device.NewService(store, &fakeValidator{valid: true}, &fakeAuditLogger{})
 
 	if err := svc.Revoke(context.Background(), d.ID, "user-1"); err != nil {
 		t.Fatalf("first revoke: %v", err)
@@ -58,7 +58,7 @@ func TestService_Revoke_AlreadyRevokedFails(t *testing.T) {
 func TestService_Revoke_DifferentOwnerForbidden(t *testing.T) {
 	store := &fakeStore{}
 	d := registerTestDevice(t, store, "user-1")
-	svc := device.NewService(store, &fakeValidator{valid: true})
+	svc := device.NewService(store, &fakeValidator{valid: true}, &fakeAuditLogger{})
 
 	err := svc.Revoke(context.Background(), d.ID, "user-2")
 	if !errors.Is(err, device.ErrForbidden) {
@@ -71,7 +71,7 @@ func TestService_Revoke_DifferentOwnerForbidden(t *testing.T) {
 
 func TestService_Revoke_UnknownDeviceNotFound(t *testing.T) {
 	store := &fakeStore{}
-	svc := device.NewService(store, &fakeValidator{valid: true})
+	svc := device.NewService(store, &fakeValidator{valid: true}, &fakeAuditLogger{})
 
 	err := svc.Revoke(context.Background(), "does-not-exist", "user-1")
 	if !errors.Is(err, device.ErrNotFound) {
@@ -84,7 +84,7 @@ func TestService_Revoke_UnknownDeviceNotFound(t *testing.T) {
 func TestService_GetTrustedDevice_ActiveDeviceIsTrusted(t *testing.T) {
 	store := &fakeStore{}
 	d := registerTestDevice(t, store, "user-1")
-	svc := device.NewService(store, &fakeValidator{valid: true})
+	svc := device.NewService(store, &fakeValidator{valid: true}, &fakeAuditLogger{})
 
 	got, err := svc.GetTrustedDevice(context.Background(), d.ID)
 	if err != nil {
@@ -98,7 +98,7 @@ func TestService_GetTrustedDevice_ActiveDeviceIsTrusted(t *testing.T) {
 func TestService_GetTrustedDevice_RevokedDeviceFailsTrust(t *testing.T) {
 	store := &fakeStore{}
 	d := registerTestDevice(t, store, "user-1")
-	svc := device.NewService(store, &fakeValidator{valid: true})
+	svc := device.NewService(store, &fakeValidator{valid: true}, &fakeAuditLogger{})
 
 	if err := svc.Revoke(context.Background(), d.ID, "user-1"); err != nil {
 		t.Fatalf("revoke: %v", err)
@@ -112,7 +112,7 @@ func TestService_GetTrustedDevice_RevokedDeviceFailsTrust(t *testing.T) {
 
 func TestService_GetTrustedDevice_UnknownDeviceNotFound(t *testing.T) {
 	store := &fakeStore{}
-	svc := device.NewService(store, &fakeValidator{valid: true})
+	svc := device.NewService(store, &fakeValidator{valid: true}, &fakeAuditLogger{})
 
 	_, err := svc.GetTrustedDevice(context.Background(), "does-not-exist")
 	if !errors.Is(err, device.ErrNotFound) {

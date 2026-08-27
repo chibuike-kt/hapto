@@ -51,32 +51,42 @@ func (t *LockoutTracker) IsLocked(ctx context.Context, userID string) (bool, tim
 
 // RecordFailure counts one failed authentication attempt against the
 // account. Once maxFailures accumulate inside the window, the account locks
-// for lockDuration.
-func (t *LockoutTracker) RecordFailure(ctx context.Context, userID string) error {
+// for lockDuration. Reports whether this call is the one that just
+// triggered the lock, so callers can record a distinct audit event for it.
+func (t *LockoutTracker) RecordFailure(ctx context.Context, userID string) (locked bool, err error) {
 	key := failuresKey(userID)
 
 	n, err := t.rdb.Incr(ctx, key).Result()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if n == 1 {
 		if err := t.rdb.Expire(ctx, key, t.window).Err(); err != nil {
-			return err
+			return false, err
 		}
 	}
 
 	if n >= t.maxFailures {
 		if err := t.rdb.Set(ctx, lockKey(userID), "1", t.lockDuration).Err(); err != nil {
-			return err
+			return false, err
 		}
-		return t.rdb.Del(ctx, key).Err()
+		if err := t.rdb.Del(ctx, key).Err(); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
 
-	return nil
+	return false, nil
 }
 
 // Reset clears both the failure counter and any active lock, called on
-// successful authentication.
-func (t *LockoutTracker) Reset(ctx context.Context, userID string) error {
-	return t.rdb.Del(ctx, failuresKey(userID), lockKey(userID)).Err()
+// successful authentication. Reports whether there was anything to clear,
+// so callers can skip recording a "lockout cleared" event on the common
+// path where no failures had ever been recorded.
+func (t *LockoutTracker) Reset(ctx context.Context, userID string) (cleared bool, err error) {
+	n, err := t.rdb.Del(ctx, failuresKey(userID), lockKey(userID)).Result()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }

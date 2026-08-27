@@ -39,11 +39,15 @@ func TestLockoutTracker_LocksAfterMaxFailuresAndClearsOnReset(t *testing.T) {
 	tracker := auth.NewLockoutTracker(rdb)
 	userID := uuid.NewString()
 	ctx := context.Background()
-	t.Cleanup(func() { _ = tracker.Reset(context.Background(), userID) })
+	t.Cleanup(func() { _, _ = tracker.Reset(context.Background(), userID) })
 
 	for i := range 4 {
-		if err := tracker.RecordFailure(ctx, userID); err != nil {
+		justLocked, err := tracker.RecordFailure(ctx, userID)
+		if err != nil {
 			t.Fatalf("record failure %d: %v", i, err)
+		}
+		if justLocked {
+			t.Fatalf("expected failure %d not to trigger the lock", i+1)
 		}
 		locked, _, err := tracker.IsLocked(ctx, userID)
 		if err != nil {
@@ -54,8 +58,12 @@ func TestLockoutTracker_LocksAfterMaxFailuresAndClearsOnReset(t *testing.T) {
 		}
 	}
 
-	if err := tracker.RecordFailure(ctx, userID); err != nil {
+	justLocked, err := tracker.RecordFailure(ctx, userID)
+	if err != nil {
 		t.Fatalf("record 5th failure: %v", err)
+	}
+	if !justLocked {
+		t.Fatal("expected the 5th failure to report that it triggered the lock")
 	}
 
 	locked, retryAfter, err := tracker.IsLocked(ctx, userID)
@@ -69,8 +77,12 @@ func TestLockoutTracker_LocksAfterMaxFailuresAndClearsOnReset(t *testing.T) {
 		t.Fatalf("unexpected retry-after: %v", retryAfter)
 	}
 
-	if err := tracker.Reset(ctx, userID); err != nil {
+	cleared, err := tracker.Reset(ctx, userID)
+	if err != nil {
 		t.Fatalf("reset: %v", err)
+	}
+	if !cleared {
+		t.Fatal("expected reset to report that it cleared an active lock")
 	}
 	locked, _, err = tracker.IsLocked(ctx, userID)
 	if err != nil {
@@ -78,6 +90,20 @@ func TestLockoutTracker_LocksAfterMaxFailuresAndClearsOnReset(t *testing.T) {
 	}
 	if locked {
 		t.Fatal("expected lock to be cleared after reset")
+	}
+}
+
+func TestLockoutTracker_ResetOnCleanAccountReportsNothingCleared(t *testing.T) {
+	rdb := openTestRedis(t)
+	tracker := auth.NewLockoutTracker(rdb)
+	userID := uuid.NewString()
+
+	cleared, err := tracker.Reset(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	if cleared {
+		t.Fatal("expected reset on an account with no failures to report nothing cleared")
 	}
 }
 
